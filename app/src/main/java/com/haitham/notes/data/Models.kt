@@ -14,10 +14,16 @@ data class Category(
     val order: Int = 0,
     val updatedAt: Long = System.currentTimeMillis(),
     val deleted: Boolean = false,
+    /** قفل القسم: بصمة الرمز (PBKDF2) والملح، وليس الرمز نفسه */
+    val pinHash: String? = null,
+    val pinSalt: String? = null,
 ) {
+    val locked: Boolean get() = pinHash != null
+
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("color", color).put("icon", icon)
         .put("order", order).put("updatedAt", updatedAt).put("deleted", deleted)
+        .apply { if (pinHash != null) put("pinHash", pinHash).put("pinSalt", pinSalt) }
 
     companion object {
         const val GENERAL = "general"
@@ -25,6 +31,7 @@ data class Category(
             id = o.getString("id"), name = o.optString("name"), color = o.optInt("color"),
             icon = o.optString("icon", "folder"), order = o.optInt("order"),
             updatedAt = o.optLong("updatedAt"), deleted = o.optBoolean("deleted"),
+            pinHash = o.optString("pinHash").ifBlank { null }, pinSalt = o.optString("pinSalt").ifBlank { null },
         )
     }
 }

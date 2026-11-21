@@ -114,6 +114,21 @@ fun EditorScreen(noteId: String) {
         val u = cameraUri
         if (ok && u != null) importUris(listOf(u))
     }
+    val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null) scope.launch {
+            val ok = withContext(Dispatchers.IO) { runCatching { ctx.contentResolver.openOutputStream(uri)!!.use { com.haitham.notes.util.PdfExport.exportNote(note, it) } }.isSuccess }
+            android.widget.Toast.makeText(ctx, if (ok) "تم حفظ ملف PDF" else "تعذّر إنشاء PDF", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    fun sharePdf() = scope.launch {
+        val f = withContext(Dispatchers.IO) { runCatching { com.haitham.notes.util.PdfExport.shareFile(ctx, note.title) { com.haitham.notes.util.PdfExport.exportNote(note, it) } }.getOrNull() }
+            ?: return@launch
+        val u = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+        val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/pdf")
+            .putExtra(android.content.Intent.EXTRA_STREAM, u).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        ctx.startActivity(android.content.Intent.createChooser(i, "إرسال PDF"))
+    }
+
     fun openCamera() {
         val dir = File(ctx.cacheDir, "camera").apply { mkdirs() }
         val f = File(dir, "cam_${System.currentTimeMillis()}.jpg")
@@ -163,6 +178,10 @@ fun EditorScreen(noteId: String) {
                                 leadingIcon = { Icon(if (note.type == NoteType.TEXT) Icons.Outlined.Checklist else Icons.Outlined.Notes, null) },
                                 onClick = { menu = false; note = convert(note) },
                             )
+                            DropdownMenuItem(text = { Text("حفظ كملف PDF") }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) },
+                                onClick = { menu = false; persist(); savePdf.launch(com.haitham.notes.util.PdfExport.fileName(note.title)) })
+                            DropdownMenuItem(text = { Text("إرسال كملف PDF") }, leadingIcon = { Icon(Icons.Outlined.Send, null) },
+                                onClick = { menu = false; persist(); sharePdf() })
                             DropdownMenuItem(text = { Text("نسخ النص") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) }, onClick = { menu = false; Share.copy(ctx, note) })
                             DropdownMenuItem(
                                 text = { Text("حذف", color = MaterialTheme.colorScheme.error) },

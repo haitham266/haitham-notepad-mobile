@@ -26,7 +26,9 @@ android {
         versionCode = (System.getenv("HN_VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("HN_VERSION_NAME") ?: "1.0.0"
 
-        fun prop(k: String) = (project.findProperty(k) as String?)?.trim().orEmpty()
+        // النصوص العربية تُكتب كـ \uXXXX داخل BuildConfig حتى لا تتلف بسبب ترميز المترجم
+        fun esc(v: String) = v.map { if (it.code < 128) it.toString() else "\\u%04x".format(it.code) }.joinToString("")
+        fun prop(k: String) = esc((project.findProperty(k) as String?)?.trim().orEmpty())
         buildConfigField("String", "DEVELOPER_NAME", "\"${prop("hn.developerName")}\"")
         buildConfigField("String", "DEVELOPER_PHONE", "\"${prop("hn.developerPhone")}\"")
         buildConfigField("String", "WHATSAPP", "\"${prop("hn.whatsapp")}\"")

@@ -63,7 +63,10 @@ class MainActivity : FragmentActivity() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) { stoppedAt = SystemClock.elapsedRealtime() }
             override fun onStart(owner: LifecycleOwner) {
-                if (stoppedAt > 0 && AppLock.enabled(Repo.prefs) && SystemClock.elapsedRealtime() - stoppedAt > 30_000) locked.value = true
+                if (stoppedAt > 0 && SystemClock.elapsedRealtime() - stoppedAt > 30_000) {
+                    if (AppLock.enabled(Repo.prefs)) locked.value = true
+                    UiState.unlocked.clear() // إعادة قفل الأقسام المقفلة
+                }
             }
         })
 

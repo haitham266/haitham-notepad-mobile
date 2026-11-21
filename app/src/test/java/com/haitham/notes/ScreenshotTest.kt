@@ -42,11 +42,14 @@ class ScreenshotTest {
 
     @Before fun seed() {
         Repo.init(RuntimeEnvironment.getApplication())
-        if (Repo.notes.value.isNotEmpty()) return
+        if (Repo.notes.value.any { it.title == "إعدادات الراوتر" }) return
         val cats = Repo.categories.value
         val pc = cats.first { it.name == "كمبيوتر" }.id
         val mob = cats.first { it.name == "موبايل" }.id
         val work = Repo.addCategory("عمل", 1, "work").id
+        val (h, salt) = com.haitham.notes.util.AppLock.categoryLock("1234")
+        val secret = Repo.addCategory("كلمات المرور", 3, "lock") { it.copy(pinHash = h, pinSalt = salt) }.id
+        Repo.saveNote(Note(categoryId = secret, title = "حساب البنك", blocks = listOf(Block.Text("سري"))))
         val img = fakeImage(0xFF2F80ED.toInt(), 0xFF7B5CFF.toInt())
         Repo.saveNote(Note(categoryId = pc, title = "إعدادات الراوتر", color = 5, pinned = true,
             blocks = listOf(Block.Text("IP: 192.168.88.1\nالمستخدم: admin"), Block.Image(img), Block.Text("تم تغيير كلمة مرور الواي فاي يوم السبت."))))
@@ -95,6 +98,15 @@ class ScreenshotTest {
     @Test fun s06_categories() { show { CategoriesScreen() }; rule.onRoot().captureRoboImage("../docs/screenshots/06-categories.png") }
 
     @Test fun s07_settings() { show { SettingsScreen {} }; rule.onRoot().captureRoboImage("../docs/screenshots/07-settings.png") }
+
+    @Test fun s09_lockedCategory() {
+        UiState.unlocked.clear()
+        UiState.selectedCategory = Repo.categories.value.first { it.locked }.id
+        show { HomeScreen() }
+        rule.mainClock.advanceTimeBy(500); rule.waitForIdle()
+        captureScreenRoboImage("../docs/screenshots/09-locked-category.png")
+        UiState.selectedCategory = null
+    }
 
     @Test fun s08_homeDark() { UiState.selectedCategory = null; show(dark = true) { HomeScreen() }; rule.onRoot().captureRoboImage("../docs/screenshots/08-home-dark.png") }
 }

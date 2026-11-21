@@ -69,6 +69,37 @@ fun SettingsScreen(onSecureChanged: (Boolean) -> Unit) {
     var setPin by remember { mutableStateOf(false) }
     var signingIn by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
+    var backupBusy by remember { mutableStateOf(false) }
+    var askPassword by remember { mutableStateOf<String?>(null) } // "export" أو "import"
+    var pendingUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var backupPassword by remember { mutableStateOf("") }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) scope.launch {
+            backupBusy = true
+            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { ctx.contentResolver.openOutputStream(uri)!!.use { com.haitham.notes.data.LocalBackup.export(it, backupPassword) } }
+            }
+            backupBusy = false; backupPassword = ""
+            r.onSuccess { snackbar.showSnackbar("تم حفظ النسخة: ${it.notes} ملاحظة، ${it.images} صورة") }
+                .onFailure { snackbar.showSnackbar("فشل إنشاء النسخة: ${it.message}") }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) { pendingUri = uri; askPassword = "import" }
+    }
+    fun runImport(password: String) {
+        val uri = pendingUri ?: return
+        scope.launch {
+            backupBusy = true
+            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { ctx.contentResolver.openInputStream(uri)!!.use { com.haitham.notes.data.LocalBackup.import(it, password) } }
+            }
+            backupBusy = false; pendingUri = null
+            r.onSuccess { snackbar.showSnackbar("تمت الاستعادة: ${it.notes} ملاحظة في ${it.categories} قسم") }
+                .onFailure { snackbar.showSnackbar(it.message ?: "فشلت الاستعادة") }
+        }
+    }
 
     suspend fun afterAuth(r: AuthorizationResult) {
         val token = r.accessToken
@@ -175,6 +206,21 @@ fun SettingsScreen(onSecureChanged: (Boolean) -> Unit) {
                 if (it && prefs.accountEmail != null) SyncScheduler.scheduleDaily(ctx) else SyncScheduler.cancelAll(ctx)
             }
 
+            SectionTitle("نسخة احتياطية على الجوال (بدون إنترنت)")
+            ListItem(
+                headlineContent = { Text("إنشاء نسخة احتياطية") },
+                supportingContent = { Text("ملف واحد فيه كل الأقسام والملاحظات والصور، محمي بكلمة مرور. احفظه في الجوال أو الذاكرة أو أرسله لنفسك") },
+                leadingContent = { Icon(Icons.Outlined.SaveAlt, null) },
+                modifier = Modifier.clickable(enabled = !backupBusy) { askPassword = "export" },
+            )
+            ListItem(
+                headlineContent = { Text("استعادة من ملف") },
+                supportingContent = { Text("تُدمج مع ملاحظاتك الحالية ولا يُحذف شيء") },
+                leadingContent = { Icon(Icons.Outlined.Restore, null) },
+                modifier = Modifier.clickable(enabled = !backupBusy) { importLauncher.launch(arrayOf("*/*")) },
+            )
+            if (backupBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+
             SectionTitle("الحماية والتشفير")
             InfoRow(Icons.Outlined.EnhancedEncryption, "كل الملاحظات والصور مشفرة", "AES-256 على الجهاز بمفتاح Android Keystore، والنسخ في Drive مشفرة أيضاً ولا يقرأها غير التطبيق")
             SwitchRow(Icons.Outlined.Lock, "قفل التطبيق برمز PIN", "يُطلب الرمز عند فتح التطبيق", lockOn) {
@@ -213,6 +259,16 @@ fun SettingsScreen(onSecureChanged: (Boolean) -> Unit) {
         }
     }
 
+    askPassword?.let { mode ->
+        BackupPasswordDialog(confirm = mode == "export", onDismiss = { askPassword = null; pendingUri = null }) { pw ->
+            askPassword = null
+            if (mode == "export") {
+                backupPassword = pw
+                val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                exportLauncher.launch("HaithamNotes-$date.hnbak")
+            } else runImport(pw)
+        }
+    }
     if (setPin) PinSetupDialog({ setPin = false }) { pin -> AppLock.setPin(prefs, pin); lockOn = true; setPin = false }
     if (confirmLogout) AlertDialog(
         onDismissRequest = { confirmLogout = false },
@@ -249,6 +305,31 @@ private fun SwitchRow(icon: ImageVector, title: String, sub: String, value: Bool
 private fun InfoRow(icon: ImageVector, title: String, sub: String) {
     ListItem(headlineContent = { Text(title) }, supportingContent = { Text(sub) },
         leadingContent = { Icon(icon, null, tint = MaterialTheme.colorScheme.tertiary) })
+}
+
+@Composable
+private fun BackupPasswordDialog(confirm: Boolean, onDismiss: () -> Unit, onOk: (String) -> Unit) {
+    var a by remember { mutableStateOf("") }
+    var b by remember { mutableStateOf("") }
+    val valid = a.length >= 4 && (!confirm || a == b)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Key, null) },
+        title = { Text(if (confirm) "كلمة مرور النسخة" else "أدخل كلمة مرور النسخة") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(a, { a = it }, label = { Text("كلمة المرور (4 أحرف على الأقل)") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                if (confirm) {
+                    OutlinedTextField(b, { b = it }, label = { Text("تأكيد كلمة المرور") }, singleLine = true, isError = b.isNotEmpty() && a != b,
+                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                    Text("احفظ كلمة المرور جيداً؛ بدونها لا يمكن فتح النسخة.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = { TextButton({ onOk(a) }, enabled = valid) { Text(if (confirm) "متابعة" else "استعادة") } },
+        dismissButton = { TextButton(onDismiss) { Text("إلغاء") } },
+    )
 }
 
 @Composable

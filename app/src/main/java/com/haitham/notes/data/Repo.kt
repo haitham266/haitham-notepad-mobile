@@ -93,8 +93,8 @@ object Repo {
         publish(); changed()
     }
 
-    fun addCategory(name: String, color: Int, icon: String): Category {
-        val c = Category(name = name.trim(), color = color, icon = icon, order = (allCats.maxOfOrNull { it.order } ?: 0) + 1)
+    fun addCategory(name: String, color: Int, icon: String, transform: (Category) -> Category = { it }): Category {
+        val c = transform(Category(name = name.trim(), color = color, icon = icon, order = (allCats.maxOfOrNull { it.order } ?: 0) + 1))
         saveCategory(c); return c
     }
 
@@ -138,6 +138,12 @@ object Repo {
             }
         }
         if (any) publish()
+    }
+
+    /** دمج بيانات مستوردة من نسخة محلية ثم مزامنتها */
+    fun importMerged(cats: List<Category>, notes: List<Note>) {
+        applyMerged(cats, notes)
+        changed()
     }
 
     /** الصور المستخدمة في أي ملاحظة موجودة (بما فيها السلة) */

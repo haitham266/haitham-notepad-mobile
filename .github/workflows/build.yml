@@ -49,7 +49,7 @@ jobs:
           } > keystore.properties
 
       - name: Unit tests
-        run: ./gradlew testDebugUnitTest --tests "*ModelTest*"
+        run: ./gradlew testDebugUnitTest --tests "*ModelTest*" --tests "*FeatureTest*"
 
       - name: Build APK
         run: |

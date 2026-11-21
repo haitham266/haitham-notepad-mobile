@@ -35,4 +35,11 @@ object UiState {
     val nav = Navigator()
     /** ملاحظات جديدة لم تُحفظ بعد */
     val drafts = mutableMapOf<String, Note>()
+    /** الأقسام المقفلة التي فُتحت في هذه الجلسة */
+    val unlocked = mutableStateListOf<String>()
+
+    fun isHidden(n: Note, cats: List<com.haitham.notes.data.Category>): Boolean {
+        val c = cats.firstOrNull { it.id == n.categoryId } ?: return false
+        return c.locked && c.id !in unlocked
+    }
 }

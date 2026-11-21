@@ -5,9 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -117,17 +115,38 @@ fun ColorPalette(selected: Int, onSelect: (Int) -> Unit, useAccent: Boolean = fa
     }
 }
 
-/** إنشاء/تعديل قسم: الاسم واللون والأيقونة */
+/** تغيير قفل القسم عند الحفظ */
+sealed class LockEdit {
+    data object Keep : LockEdit()
+    data class Set(val pin: String) : LockEdit()
+    data object Remove : LockEdit()
+}
+
+/** يطبّق تغيير القفل على القسم */
+fun Category.withLock(l: LockEdit): Category = when (l) {
+    LockEdit.Keep -> this
+    LockEdit.Remove -> copy(pinHash = null, pinSalt = null)
+    is LockEdit.Set -> com.haitham.notes.util.AppLock.categoryLock(l.pin).let { (h, salt) -> copy(pinHash = h, pinSalt = salt) }
+}
+
+/** إنشاء/تعديل قسم: الاسم واللون والأيقونة والقفل */
 @Composable
-fun CategoryDialog(initial: Category?, onDismiss: () -> Unit, onSave: (name: String, color: Int, icon: String) -> Unit) {
+fun CategoryDialog(initial: Category?, onDismiss: () -> Unit, onSave: (name: String, color: Int, icon: String, lock: LockEdit) -> Unit) {
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var color by remember { mutableIntStateOf(initial?.color ?: 5) }
     var icon by remember { mutableStateOf(initial?.icon ?: "folder") }
+    val wasLocked = initial?.locked == true
+    var lock by remember { mutableStateOf(wasLocked) }
+    var changePin by remember { mutableStateOf(false) }
+    var pin1 by remember { mutableStateOf("") }
+    var pin2 by remember { mutableStateOf("") }
+    val needPin = lock && (!wasLocked || changePin)
+    val pinOk = !needPin || (pin1.length >= 4 && pin1 == pin2)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial == null) "قسم جديد" else "تعديل القسم") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 OutlinedTextField(
                     name, { name = it }, label = { Text("اسم القسم") }, singleLine = true,
                     placeholder = { Text("مثال: كمبيوتر، موبايل، عمل…") },
@@ -136,22 +155,94 @@ fun CategoryDialog(initial: Category?, onDismiss: () -> Unit, onSave: (name: Str
                 Text("اللون", style = MaterialTheme.typography.labelLarge)
                 ColorPalette(color, { color = it }, useAccent = true)
                 Text("الأيقونة", style = MaterialTheme.typography.labelLarge)
-                LazyVerticalGrid(GridCells.Fixed(5), Modifier.heightIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(CategoryIcons) { (key, vec) ->
-                        val sel = key == icon
-                        val accent = noteColor(color).accent
-                        Box(
-                            Modifier.aspectRatio(1f).clip(RoundedCornerShape(12.dp))
-                                .background(if (sel) accent.copy(.2f) else MaterialTheme.colorScheme.surfaceVariant)
-                                .border(if (sel) 2.dp else 0.dp, if (sel) accent else Color.Transparent, RoundedCornerShape(12.dp))
-                                .clickable { icon = key },
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(vec, null, tint = if (sel) accent else MaterialTheme.colorScheme.onSurfaceVariant) }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    CategoryIcons.chunked(5).forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            row.forEach { (key, vec) ->
+                                val sel = key == icon
+                                val accent = noteColor(color).accent
+                                Box(
+                                    Modifier.size(42.dp).clip(RoundedCornerShape(12.dp))
+                                        .background(if (sel) accent.copy(.2f) else MaterialTheme.colorScheme.surfaceVariant)
+                                        .border(if (sel) 2.dp else 0.dp, if (sel) accent else Color.Transparent, RoundedCornerShape(12.dp))
+                                        .clickable { icon = key },
+                                    contentAlignment = Alignment.Center,
+                                ) { Icon(vec, null, tint = if (sel) accent else MaterialTheme.colorScheme.onSurfaceVariant) }
+                            }
+                        }
+                    }
+                }
+                if (initial?.id != Category.GENERAL) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("قفل القسم برمز", style = MaterialTheme.typography.titleSmall)
+                            Text("ملاحظاته تختفي من «الكل» والبحث حتى تفتحه", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(lock, { lock = it })
+                    }
+                    if (lock && wasLocked && !changePin) TextButton({ changePin = true }) { Text("تغيير رمز القسم") }
+                    if (needPin) {
+                        val digits = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword)
+                        val hide = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        OutlinedTextField(pin1, { if (it.length <= 8 && it.all(Char::isDigit)) pin1 = it }, label = { Text("رمز القسم (4-8 أرقام)") },
+                            singleLine = true, keyboardOptions = digits, visualTransformation = hide, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(pin2, { if (it.length <= 8 && it.all(Char::isDigit)) pin2 = it }, label = { Text("تأكيد الرمز") },
+                            singleLine = true, keyboardOptions = digits, visualTransformation = hide, isError = pin2.isNotEmpty() && pin1 != pin2,
+                            modifier = Modifier.fillMaxWidth())
+                        Text("إذا نسيت رمز القسم يمكنك فتحه برمز قفل التطبيق (إن كان مفعّلاً).", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
         },
-        confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim(), color, icon) }) { Text("حفظ") } },
+        confirmButton = {
+            TextButton(enabled = name.isNotBlank() && pinOk, onClick = {
+                val l = when {
+                    needPin -> LockEdit.Set(pin1)
+                    !lock && wasLocked -> LockEdit.Remove
+                    else -> LockEdit.Keep
+                }
+                onSave(name.trim(), color, icon, l)
+            }) { Text("حفظ") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
+    )
+}
+
+/** فتح قسم مقفل برمزه (أو رمز التطبيق) أو بالبصمة */
+@Composable
+fun UnlockCategoryDialog(c: Category, onDismiss: () -> Unit, onUnlocked: () -> Unit) {
+    val ctx = LocalContext.current
+    val prefs = com.haitham.notes.data.Repo.prefs
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+    val act = ctx as? androidx.fragment.app.FragmentActivity
+    val bio = act != null && prefs.biometric && com.haitham.notes.util.AppLock.enabled(prefs) && com.haitham.notes.util.AppLock.biometricAvailable(act)
+    fun ok() { com.haitham.notes.ui.UiState.unlocked.add(c.id); onUnlocked() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Lock, null) },
+        title = { Text("قسم «${c.name}» مقفل") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    pin, { if (it.length <= 8 && it.all(Char::isDigit)) { pin = it; error = false } }, label = { Text("الرمز") }, singleLine = true, isError = error,
+                    supportingText = { if (error) Text("رمز غير صحيح") },
+                    keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword),
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
+                )
+                if (bio) TextButton({ com.haitham.notes.util.AppLock.promptBiometric(act!!) { ok() } }) {
+                    Icon(Icons.Outlined.Fingerprint, null); Spacer(Modifier.width(6.dp)); Text("فتح بالبصمة")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = pin.length >= 4, onClick = {
+                if (com.haitham.notes.util.AppLock.checkCategory(c, prefs, pin)) ok() else error = true
+            }) { Text("فتح") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
     )
 }

@@ -74,11 +74,19 @@ fun HomeScreen() {
     var showNew by remember { mutableStateOf(false) }
     var actionsFor by remember { mutableStateOf<Note?>(null) }
     var newCategory by remember { mutableStateOf(false) }
+    var unlockFor by remember { mutableStateOf<Category?>(null) }
+    fun select(id: String?) {
+        selected = id
+        val c = cats.firstOrNull { it.id == id }
+        if (c != null && c.locked && c.id !in UiState.unlocked) unlockFor = c
+    }
 
     val catMap = cats.associateBy { it.id }
     val active = allNotes.filter { !it.trashed }
+    val selCat = selected?.let { catMap[it] }
+    val selLocked = selCat != null && selCat.locked && selCat.id !in UiState.unlocked
     val visible = active
-        .filter { selected == null || it.categoryId == selected }
+        .filter { if (selected == null) !UiState.isHidden(it, cats) else it.categoryId == selected && !selLocked }
         .filter { q -> query.isBlank() || q.title.contains(query, true) || q.plainText.contains(query, true) }
         .let { list ->
             when (sort) {
@@ -91,14 +99,23 @@ fun HomeScreen() {
     val pinned = visible.filter { it.pinned }
     val others = visible.filter { !it.pinned }
     val title = selected?.let { catMap[it]?.name } ?: "كل الملاحظات"
+    val savePdf = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null) scope.launch {
+            val list = visible
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { ctx.contentResolver.openOutputStream(uri)!!.use { com.haitham.notes.util.PdfExport.exportCategory(selCat, list, it) } }.isSuccess
+            }
+            android.widget.Toast.makeText(ctx, if (ok) "تم حفظ ملف PDF (${list.size} ملاحظة)" else "تعذّر إنشاء PDF", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawer,
         drawerContent = {
             HomeDrawer(
-                cats = cats, counts = active.groupingBy { it.categoryId }.eachCount(), total = active.size,
+                cats = cats, counts = active.groupingBy { it.categoryId }.eachCount(), total = active.count { !UiState.isHidden(it, cats) },
                 trashCount = allNotes.count { it.trashed }, selected = selected,
-                onSelect = { selected = it; scope.launch { drawer.close() } },
+                onSelect = { select(it); scope.launch { drawer.close() } },
                 onAddCategory = { newCategory = true },
                 onNavigate = { s -> scope.launch { drawer.close() }; nav.go(s) },
             )
@@ -142,14 +159,21 @@ fun HomeScreen() {
                                 Icon(if (grid) Icons.AutoMirrored.Outlined.ViewList else Icons.Outlined.GridView, "طريقة العرض")
                             }
                             Box {
-                                IconButton({ sortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, "ترتيب") }
+                                IconButton({ sortMenu = true }) { Icon(Icons.Filled.MoreVert, "المزيد") }
                                 DropdownMenu(sortMenu, { sortMenu = false }) {
+                                    Text("الترتيب", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                                     listOf(SortMode.UPDATED to "آخر تعديل", SortMode.CREATED to "تاريخ الإنشاء", SortMode.TITLE to "العنوان", SortMode.COLOR to "اللون").forEach { (m, l) ->
                                         DropdownMenuItem(
                                             text = { Text(l) }, onClick = { sort = m; Repo.prefs.sort = m; sortMenu = false },
                                             leadingIcon = { RadioButton(sort == m, null) },
                                         )
                                     }
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("تصدير «$title» إلى PDF") }, enabled = visible.isNotEmpty(),
+                                        leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) },
+                                        onClick = { sortMenu = false; savePdf.launch(com.haitham.notes.util.PdfExport.fileName(title)) },
+                                    )
                                 }
                             }
                         },
@@ -168,15 +192,15 @@ fun HomeScreen() {
                 // شريط الأقسام
                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
-                        FilterChip(selected == null, { selected = null }, label = { Text("الكل (${active.size})") },
+                        FilterChip(selected == null, { selected = null }, label = { Text("الكل (${active.count { !UiState.isHidden(it, cats) }})") },
                             leadingIcon = { Icon(Icons.Outlined.Notes, null, Modifier.size(18.dp)) })
                     }
                     items(cats, key = { it.id }) { c ->
                         val accent = noteColor(c.color).accent
                         FilterChip(
-                            selected == c.id, { selected = c.id },
-                            label = { Text("${c.name} (${active.count { it.categoryId == c.id }})") },
-                            leadingIcon = { Icon(categoryIcon(c.icon), null, Modifier.size(18.dp), tint = accent) },
+                            selected == c.id, { select(c.id) },
+                            label = { Text(if (c.locked && c.id !in UiState.unlocked) c.name else "${c.name} (${active.count { it.categoryId == c.id }})") },
+                            leadingIcon = { Icon(if (c.locked) (if (c.id in UiState.unlocked) Icons.Outlined.LockOpen else Icons.Outlined.Lock) else categoryIcon(c.icon), null, Modifier.size(18.dp), tint = accent) },
                             colors = FilterChipDefaults.filterChipColors(selectedContainerColor = accent.copy(.18f)),
                         )
                     }
@@ -185,7 +209,12 @@ fun HomeScreen() {
                     }
                 }
 
-                if (visible.isEmpty()) {
+                if (selLocked) {
+                    Column(Modifier.fillMaxWidth().padding(top = 60.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        EmptyState(Icons.Outlined.Lock, "هذا القسم مقفل", "أدخل رمز القسم لعرض ملاحظاته")
+                        Button({ unlockFor = selCat }) { Icon(Icons.Outlined.LockOpen, null); Spacer(Modifier.width(8.dp)); Text("فتح القسم") }
+                    }
+                } else if (visible.isEmpty()) {
                     EmptyState(
                         if (query.isBlank()) Icons.Outlined.EditNote else Icons.Outlined.SearchOff,
                         if (query.isBlank()) "لا توجد ملاحظات هنا" else "لا توجد نتائج",
@@ -222,9 +251,10 @@ fun HomeScreen() {
         nav.go(Screen.Editor(n.id))
     }
     actionsFor?.let { n -> NoteActionsSheet(n, cats, onDismiss = { actionsFor = null }, onShare = { Share.note(ctx, n) }) }
-    if (newCategory) CategoryDialog(null, { newCategory = false }) { name, color, icon ->
-        val c = Repo.addCategory(name, color, icon); newCategory = false; selected = c.id
+    if (newCategory) CategoryDialog(null, { newCategory = false }) { name, color, icon, lock ->
+        val c = Repo.addCategory(name, color, icon) { it.withLock(lock) }; UiState.unlocked.add(c.id); newCategory = false; selected = c.id
     }
+    unlockFor?.let { c -> UnlockCategoryDialog(c, { unlockFor = null; if (c.id !in UiState.unlocked) selected = null }) { unlockFor = null } }
 }
 
 @Composable
@@ -332,7 +362,8 @@ private fun HomeDrawer(
             cats.forEach { c ->
                 NavigationDrawerItem(
                     label = { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }, selected = selected == c.id, onClick = { onSelect(c.id) },
-                    icon = { CategoryBadge(c, 30.dp) }, badge = { Text("${counts[c.id] ?: 0}") },
+                    icon = { CategoryBadge(c, 30.dp) },
+                    badge = { if (c.locked && c.id !in UiState.unlocked) Icon(Icons.Outlined.Lock, null, Modifier.size(16.dp)) else Text("${counts[c.id] ?: 0}") },
                     modifier = Modifier.padding(horizontal = 12.dp),
                 )
             }
@@ -398,7 +429,7 @@ fun NewNoteSheet(cats: List<Category>, defaultCat: String, onDismiss: () -> Unit
             }
         }
     }
-    if (newCat) CategoryDialog(null, { newCat = false }) { name, color, icon -> cat = Repo.addCategory(name, color, icon).id; newCat = false }
+    if (newCat) CategoryDialog(null, { newCat = false }) { name, color, icon, lock -> cat = Repo.addCategory(name, color, icon) { it.withLock(lock) }.also { UiState.unlocked.add(it.id) }.id; newCat = false }
 }
 
 @Composable
@@ -441,7 +472,7 @@ fun CategoryPickerSheet(cats: List<Category>, current: String, onDismiss: () -> 
             }
         }
     }
-    if (newCat) CategoryDialog(null, { newCat = false }) { name, color, icon -> newCat = false; onPick(Repo.addCategory(name, color, icon).id) }
+    if (newCat) CategoryDialog(null, { newCat = false }) { name, color, icon, lock -> newCat = false; onPick(Repo.addCategory(name, color, icon) { it.withLock(lock) }.also { UiState.unlocked.add(it.id) }.id) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

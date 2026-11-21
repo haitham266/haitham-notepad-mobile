@@ -18,6 +18,7 @@ import com.haitham.notes.data.Category
 import com.haitham.notes.data.Repo
 import com.haitham.notes.ui.LocalNav
 import com.haitham.notes.ui.components.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,7 +26,7 @@ fun TrashScreen() {
     val nav = LocalNav.current
     val notes by Repo.notes.collectAsState()
     val cats by Repo.categories.collectAsState()
-    val trashed = notes.filter { it.trashed }.sortedByDescending { it.updatedAt }
+    val trashed = notes.filter { it.trashed && !com.haitham.notes.ui.UiState.isHidden(it, cats) }.sortedByDescending { it.updatedAt }
     var confirmEmpty by remember { mutableStateOf(false) }
     Scaffold(topBar = {
         TopAppBar(
@@ -67,6 +68,24 @@ fun CategoriesScreen() {
     var editing by remember { mutableStateOf<Category?>(null) }
     var adding by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<Category?>(null) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pdfCat by remember { mutableStateOf<Category?>(null) }
+    val savePdf = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        val c = pdfCat
+        if (uri != null && c != null) scope.launch {
+            val list = notes.filter { !it.trashed && it.categoryId == c.id }.sortedWith(compareByDescending<com.haitham.notes.data.Note> { it.pinned }.thenByDescending { it.updatedAt })
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { ctx.contentResolver.openOutputStream(uri)!!.use { com.haitham.notes.util.PdfExport.exportCategory(c, list, it) } }.isSuccess
+            }
+            android.widget.Toast.makeText(ctx, if (ok) "تم حفظ PDF قسم «${c.name}»" else "تعذّر إنشاء PDF", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    var unlockThen by remember { mutableStateOf<Pair<Category, () -> Unit>?>(null) }
+    /** الأقسام المقفلة تحتاج الرمز قبل تعديلها أو حذفها */
+    fun guarded(c: Category, action: () -> Unit) {
+        if (c.locked && c.id !in com.haitham.notes.ui.UiState.unlocked) unlockThen = c to action else action()
+    }
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("إدارة الأقسام") },
@@ -82,25 +101,41 @@ fun CategoriesScreen() {
                 ElevatedCard(shape = RoundedCornerShape(18.dp)) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         CategoryBadge(c, 44.dp)
+                        if (c.locked) Icon(Icons.Outlined.Lock, "مقفل", Modifier.padding(start = 4.dp).size(16.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(c.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("$count ملاحظة" + if (c.id == Category.GENERAL) " • القسم الافتراضي" else "", style = MaterialTheme.typography.bodySmall,
+                            Text((if (c.locked && c.id !in com.haitham.notes.ui.UiState.unlocked) "مقفل" else "$count ملاحظة") + if (c.id == Category.GENERAL) " • القسم الافتراضي" else "", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (c.id != Category.GENERAL) {
                             IconButton({ Repo.moveCategory(c.id, true) }) { Icon(Icons.Filled.KeyboardArrowUp, "أعلى") }
                             IconButton({ Repo.moveCategory(c.id, false) }) { Icon(Icons.Filled.KeyboardArrowDown, "أسفل") }
                         }
-                        IconButton({ editing = c }) { Icon(Icons.Outlined.Edit, "تعديل") }
-                        if (c.id != Category.GENERAL) IconButton({ deleting = c }) { Icon(Icons.Outlined.Delete, "حذف", tint = MaterialTheme.colorScheme.error) }
+                        Box {
+                            var m by remember { mutableStateOf(false) }
+                            IconButton({ m = true }) { Icon(Icons.Filled.MoreVert, "المزيد") }
+                            DropdownMenu(m, { m = false }) {
+                                DropdownMenuItem(text = { Text("تعديل") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                                    onClick = { m = false; guarded(c) { editing = c } })
+                                DropdownMenuItem(text = { Text("تصدير PDF") }, leadingIcon = { Icon(Icons.Outlined.PictureAsPdf, null) },
+                                    onClick = { m = false; guarded(c) { pdfCat = c; savePdf.launch(com.haitham.notes.util.PdfExport.fileName(c.name)) } })
+                                if (c.id != Category.GENERAL) DropdownMenuItem(
+                                    text = { Text("حذف", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                    onClick = { m = false; guarded(c) { deleting = c } })
+                            }
+                        }
                     }
                 }
             }
         }
     }
-    if (adding) CategoryDialog(null, { adding = false }) { n, col, ic -> Repo.addCategory(n, col, ic); adding = false }
-    editing?.let { c -> CategoryDialog(c, { editing = null }) { n, col, ic -> Repo.saveCategory(c.copy(name = n, color = col, icon = ic)); editing = null } }
+    if (adding) CategoryDialog(null, { adding = false }) { n, col, ic, lock ->
+        Repo.addCategory(n, col, ic) { it.withLock(lock) }.also { com.haitham.notes.ui.UiState.unlocked.add(it.id) }; adding = false
+    }
+    editing?.let { c -> CategoryDialog(c, { editing = null }) { n, col, ic, lock -> Repo.saveCategory(c.copy(name = n, color = col, icon = ic).withLock(lock)); editing = null } }
+    unlockThen?.let { (c, action) -> UnlockCategoryDialog(c, { unlockThen = null }) { unlockThen = null; action() } }
     deleting?.let { c ->
         val count = notes.count { !it.trashed && it.categoryId == c.id }
         AlertDialog(

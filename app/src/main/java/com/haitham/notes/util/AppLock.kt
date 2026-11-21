@@ -15,7 +15,7 @@ import javax.crypto.spec.PBEKeySpec
 object AppLock {
     fun enabled(p: Prefs) = p.pinHash != null
 
-    private fun hash(pin: String, salt: ByteArray): String {
+    fun hash(pin: String, salt: ByteArray): String {
         val spec = PBEKeySpec(pin.toCharArray(), salt, 60_000, 256)
         val k = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1").generateSecret(spec).encoded
         return Base64.encodeToString(k, Base64.NO_WRAP)
@@ -31,6 +31,20 @@ object AppLock {
     fun check(p: Prefs, pin: String): Boolean {
         val salt = p.pinSalt?.let { Base64.decode(it, Base64.NO_WRAP) } ?: return false
         return MessageDigest.isEqual(hash(pin, salt).toByteArray(), (p.pinHash ?: "").toByteArray())
+    }
+
+    /** قفل قسم: يعيد (بصمة الرمز، الملح) لتخزينهما داخل القسم */
+    fun categoryLock(pin: String): Pair<String, String> {
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        return hash(pin, salt) to Base64.encodeToString(salt, Base64.NO_WRAP)
+    }
+
+    /** يقبل رمز القسم، أو رمز قفل التطبيق كرمز احتياطي إذا نسيت رمز القسم */
+    fun checkCategory(c: com.haitham.notes.data.Category, p: Prefs, pin: String): Boolean {
+        val h = c.pinHash ?: return true
+        val salt = c.pinSalt?.let { Base64.decode(it, Base64.NO_WRAP) } ?: return false
+        if (MessageDigest.isEqual(hash(pin, salt).toByteArray(), h.toByteArray())) return true
+        return enabled(p) && check(p, pin)
     }
 
     fun biometricAvailable(a: FragmentActivity) =
