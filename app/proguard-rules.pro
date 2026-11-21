@@ -1,0 +1,2 @@
+-keep class com.haitham.notes.BuildConfig { *; }
+-keep class com.haitham.notes.sync.SyncWorker { *; }

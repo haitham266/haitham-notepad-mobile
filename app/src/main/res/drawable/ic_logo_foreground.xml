@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- شعار Haitham Notes: دفتر بحلقات وأقسام ملونة (تبويبات) وحرف H -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- تبويبات الأقسام -->
+    <path android:fillColor="#FFB020" android:pathData="M66,33 h9 a4,4 0 0 1 4,4 v2 a4,4 0 0 1 -4,4 h-9z" />
+    <path android:fillColor="#FF4F8B" android:pathData="M66,47 h9 a4,4 0 0 1 4,4 v2 a4,4 0 0 1 -4,4 h-9z" />
+    <path android:fillColor="#19D3A2" android:pathData="M66,61 h9 a4,4 0 0 1 4,4 v2 a4,4 0 0 1 -4,4 h-9z" />
+    <!-- الورقة -->
+    <path android:fillColor="#FFFFFF" android:pathData="M37,27 h28 a6,6 0 0 1 6,6 v42 a6,6 0 0 1 -6,6 h-28 a6,6 0 0 1 -6,-6 v-42 a6,6 0 0 1 6,-6z" />
+    <path android:fillColor="#E3DEFF" android:pathData="M37,27 h1 v54 h-1 a6,6 0 0 1 -6,-6 v-42 a6,6 0 0 1 6,-6z" />
+    <!-- الحلقات -->
+    <path android:fillColor="#3B2FC9" android:pathData="M34.5,36 m-1.7,0 a1.7,1.7 0 1 0 3.4,0 a1.7,1.7 0 1 0 -3.4,0 M34.5,45.5 m-1.7,0 a1.7,1.7 0 1 0 3.4,0 a1.7,1.7 0 1 0 -3.4,0 M34.5,55 m-1.7,0 a1.7,1.7 0 1 0 3.4,0 a1.7,1.7 0 1 0 -3.4,0 M34.5,64.5 m-1.7,0 a1.7,1.7 0 1 0 3.4,0 a1.7,1.7 0 1 0 -3.4,0 M34.5,74 m-1.7,0 a1.7,1.7 0 1 0 3.4,0 a1.7,1.7 0 1 0 -3.4,0" />
+    <!-- حرف H -->
+    <path android:pathData="M44,40 h6 v11 h8 v-11 h6 v28 h-6 v-11 h-8 v11 h-6z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="44" android:startY="40" android:endX="64" android:endY="68"
+                android:startColor="#6A5BFF" android:endColor="#2A1F99" />
+        </aapt:attr>
+    </path>
+    <!-- خط القلم -->
+    <path android:strokeColor="#FFB020" android:strokeWidth="2.4" android:strokeLineCap="round" android:pathData="M44,73 h20" />
+</vector>
