@@ -60,6 +60,8 @@ data class Note(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val deleted: Boolean = false,
+    /** وقت التذكير بالمللي ثانية، 0 = بدون تذكير */
+    val reminderAt: Long = 0,
 ) {
     val plainText: String
         get() = when (type) {
@@ -85,6 +87,7 @@ data class Note(
             .put("id", id).put("categoryId", categoryId).put("type", type.name).put("title", title)
             .put("blocks", b).put("items", it2).put("color", color).put("pinned", pinned)
             .put("trashed", trashed).put("createdAt", createdAt).put("updatedAt", updatedAt).put("deleted", deleted)
+            .put("reminderAt", reminderAt)
     }
 
     companion object {
@@ -108,6 +111,7 @@ data class Note(
                 title = o.optString("title"), blocks = blocks, items = items, color = o.optInt("color"),
                 pinned = o.optBoolean("pinned"), trashed = o.optBoolean("trashed"),
                 createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"), deleted = o.optBoolean("deleted"),
+                reminderAt = o.optLong("reminderAt"),
             )
         }
     }

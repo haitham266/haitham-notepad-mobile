@@ -66,6 +66,11 @@ object Repo {
         val saved = if (touch) n.copy(updatedAt = System.currentTimeMillis()) else n
         db.save(saved)
         allNotes = allNotes.filter { it.id != saved.id } + saved
+        runCatching {
+            if (saved.reminderAt > System.currentTimeMillis() && !saved.trashed && !saved.deleted)
+                com.haitham.notes.util.Reminders.schedule(appCtx, saved.id, saved.reminderAt)
+            else com.haitham.notes.util.Reminders.cancel(appCtx, saved.id)
+        }
         publish(); changed()
     }
 

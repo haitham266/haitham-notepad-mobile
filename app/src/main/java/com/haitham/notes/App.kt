@@ -8,6 +8,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         Repo.init(this)
+        com.haitham.notes.util.Reminders.rescheduleAll(this)
         if (Repo.prefs.accountEmail != null && Repo.prefs.autoSync) SyncScheduler.scheduleDaily(this)
     }
 }

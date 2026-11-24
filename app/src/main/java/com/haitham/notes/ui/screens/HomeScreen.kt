@@ -269,71 +269,32 @@ private fun GroupLabel(icon: androidx.compose.ui.graphics.vector.ImageVector, te
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoteCard(n: Note, cat: Category?, showCategory: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    // صف مضغوط مثل ColorNote: شريط لون + سطر واحد + التاريخ
     val bg = noteBg(n.color)
     val accent = noteColor(n.color).accent
-    Card(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = bg),
-        border = if (n.color == 0) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
+    val firstLine = when (n.type) {
+        NoteType.TEXT -> n.plainText.lines().firstOrNull { it.isNotBlank() }.orEmpty()
+        NoteType.CHECKLIST -> n.items.firstOrNull { it.text.isNotBlank() }?.text.orEmpty()
+    }
+    val label = n.title.ifBlank { firstLine }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(6.dp)).background(bg)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.fillMaxWidth().height(4.dp).background(accent.copy(alpha = if (n.color == 0) 0f else .7f)))
-        n.imageIds.firstOrNull()?.let { id ->
-            val bmp = remember(id) { Repo.images.bitmap(id) }
-            if (bmp != null) Box {
-                Image(bmp.asImageBitmap(), null, Modifier.fillMaxWidth().heightIn(max = 160.dp), contentScale = ContentScale.Crop)
-                if (n.imageIds.size > 1) Text(
-                    "+${n.imageIds.size - 1}", color = Color.White, fontSize = 12.sp,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(8.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(.55f)).padding(horizontal = 6.dp, vertical = 2.dp),
-                )
-            }
+        Box(Modifier.width(5.dp).height(48.dp).background(if (n.color == 0) MaterialTheme.colorScheme.outlineVariant else accent))
+        Spacer(Modifier.width(12.dp))
+        if (n.pinned) { Icon(Icons.Filled.PushPin, null, Modifier.size(14.dp), tint = accent); Spacer(Modifier.width(4.dp)) }
+        if (n.type == NoteType.CHECKLIST) { Icon(Icons.Outlined.CheckBoxOutlineBlank, null, Modifier.size(14.dp), tint = accent); Spacer(Modifier.width(4.dp)) }
+        if (n.reminderAt > System.currentTimeMillis()) { Icon(Icons.Filled.NotificationsActive, null, Modifier.size(14.dp), tint = accent); Spacer(Modifier.width(4.dp)) }
+        Text(label.ifBlank { "ملاحظة فارغة" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).padding(vertical = 8.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(Fmt.date(n.updatedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (showCategory && cat != null) Text(cat.name, fontSize = 10.sp, color = noteColor(cat.color).accent, maxLines = 1)
         }
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                if (n.title.isNotBlank()) Text(n.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                else Spacer(Modifier.weight(1f))
-                if (n.pinned) Icon(Icons.Filled.PushPin, null, Modifier.size(16.dp), tint = accent)
-            }
-            when (n.type) {
-                NoteType.TEXT -> {
-                    val t = n.plainText
-                    if (t.isNotBlank()) {
-                        if (n.title.isNotBlank()) Spacer(Modifier.height(4.dp))
-                        Text(t, style = MaterialTheme.typography.bodyMedium, maxLines = 8, overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurface.copy(.85f))
-                    }
-                }
-                NoteType.CHECKLIST -> {
-                    Spacer(Modifier.height(4.dp))
-                    n.items.filter { it.text.isNotBlank() }.take(6).forEach { item ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (item.checked) Icons.Filled.CheckBox else Icons.Outlined.CheckBoxOutlineBlank, null, Modifier.size(16.dp), tint = accent)
-                            Spacer(Modifier.width(6.dp))
-                            Text(item.text, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                textDecoration = if (item.checked) TextDecoration.LineThrough else null,
-                                color = MaterialTheme.colorScheme.onSurface.copy(if (item.checked) .5f else .85f))
-                        }
-                    }
-                    val total = n.items.count { it.text.isNotBlank() }
-                    if (total > 0) Text("${n.items.count { it.checked && it.text.isNotBlank() }}/$total منجزة", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (showCategory && cat != null) {
-                    val ca = noteColor(cat.color).accent
-                    Row(Modifier.clip(RoundedCornerShape(50)).background(ca.copy(.15f)).padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(categoryIcon(cat.icon), null, Modifier.size(12.dp), tint = ca)
-                        Spacer(Modifier.width(4.dp))
-                        Text(cat.name, fontSize = 11.sp, color = ca, fontWeight = FontWeight.Bold, maxLines = 1)
-                    }
-                    Spacer(Modifier.width(6.dp))
-                }
-                Spacer(Modifier.weight(1f))
-                Text(Fmt.date(n.updatedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+        Spacer(Modifier.width(12.dp))
     }
 }
 

@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -150,6 +151,21 @@ fun EditorScreen(noteId: String) {
         note = note.copy(blocks = b)
     }
 
+    val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    fun pickReminder() {
+        val c = java.util.Calendar.getInstance()
+        if (note.reminderAt > System.currentTimeMillis()) c.timeInMillis = note.reminderAt else c.add(java.util.Calendar.HOUR_OF_DAY, 1)
+        android.app.DatePickerDialog(ctx, { _, y, mo, d ->
+            android.app.TimePickerDialog(ctx, { _, h, mi ->
+                val t = java.util.Calendar.getInstance().apply { set(y, mo, d, h, mi, 0); set(java.util.Calendar.MILLISECOND, 0) }
+                if (t.timeInMillis > System.currentTimeMillis()) {
+                    note = note.copy(reminderAt = t.timeInMillis)
+                    if (android.os.Build.VERSION.SDK_INT >= 33 && !com.haitham.notes.util.Reminders.canNotify(ctx)) notifPerm.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }, c.get(java.util.Calendar.HOUR_OF_DAY), c.get(java.util.Calendar.MINUTE), false).show()
+        }, c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH), c.get(java.util.Calendar.DAY_OF_MONTH)).show()
+    }
+
     val bg = noteBg(note.color)
     val accent = noteColor(note.color).accent
     val cat = cats.firstOrNull { it.id == note.categoryId } ?: cats.firstOrNull()
@@ -165,12 +181,19 @@ fun EditorScreen(noteId: String) {
                     IconButton({ note = note.copy(pinned = !note.pinned) }) {
                         Icon(if (note.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, "تثبيت", tint = if (note.pinned) accent else LocalContentColor.current)
                     }
+                    IconButton({ pickReminder() }) {
+                        Icon(if (note.reminderAt > System.currentTimeMillis()) Icons.Filled.NotificationsActive else Icons.Outlined.NotificationAdd, "تذكير",
+                            tint = if (note.reminderAt > System.currentTimeMillis()) accent else LocalContentColor.current)
+                    }
                     IconButton({ showColors = !showColors }) { Icon(Icons.Outlined.Palette, "اللون") }
                     IconButton({ gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Icon(Icons.Outlined.Image, "إضافة صورة") }
                     IconButton({ persist(); Share.note(ctx, note) }) { Icon(Icons.Outlined.Share, "إرسال") }
                     Box {
                         IconButton({ menu = true }) { Icon(Icons.Filled.MoreVert, "المزيد") }
                         DropdownMenu(menu, { menu = false }) {
+                            if (note.reminderAt > System.currentTimeMillis())
+                                DropdownMenuItem(text = { Text("إلغاء التذكير") }, leadingIcon = { Icon(Icons.Outlined.NotificationsOff, null) },
+                                    onClick = { menu = false; note = note.copy(reminderAt = 0) })
                             DropdownMenuItem(text = { Text("التقاط صورة بالكاميرا") }, leadingIcon = { Icon(Icons.Outlined.PhotoCamera, null) }, onClick = { menu = false; openCamera() })
                             DropdownMenuItem(text = { Text("نقل إلى قسم") }, leadingIcon = { Icon(Icons.Outlined.DriveFileMove, null) }, onClick = { menu = false; pickCat = true })
                             DropdownMenuItem(
@@ -223,7 +246,11 @@ fun EditorScreen(noteId: String) {
             }
             if (importing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
 
-            val textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
+            val ruleH = 30.sp
+            val textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface, lineHeight = ruleH,
+                lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center, androidx.compose.ui.text.style.LineHeightStyle.Trim.None))
+            val ruleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .14f)
+            val ruleStep = with(androidx.compose.ui.platform.LocalDensity.current) { ruleH.toPx() }
             val cursor = SolidColor(MaterialTheme.colorScheme.primary)
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 120.dp)) {
                 item(key = "title") {
@@ -244,7 +271,11 @@ fun EditorScreen(noteId: String) {
                                 b.text,
                                 { v -> note = note.copy(blocks = note.blocks.toMutableList().also { it[i] = b.copy(text = v) }) },
                                 textStyle = textStyle, cursorBrush = cursor,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).onFocusChanged { if (it.isFocused) focused = i },
+                                modifier = Modifier.fillMaxWidth().then(if (i == note.blocks.lastIndex) Modifier.heightIn(min = 420.dp) else Modifier)
+                                    .drawBehind {
+                                        var y = ruleStep
+                                        while (y <= size.height + 1f) { drawLine(ruleColor, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1.5f); y += ruleStep }
+                                    }.onFocusChanged { if (it.isFocused) focused = i },
                                 decorationBox = { inner ->
                                     if (b.text.isEmpty() && i == 0) Text("اكتب ملاحظتك هنا…", style = textStyle, color = MaterialTheme.colorScheme.onSurface.copy(.35f))
                                     inner()
